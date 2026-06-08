@@ -1,5 +1,6 @@
 const axios = require("axios");
 const cheerio = require("cheerio");
+const { resolveArticleImage } = require("./articleImageResolver");
 
 async function scrapeLiveLawCourt(
 	url = "",
@@ -41,7 +42,7 @@ async function scrapeLiveLawCourt(
 
 				const image =
 					$(el)
-						find("img")
+						.find("img")
 						.attr("src");
 
 				if (
@@ -78,6 +79,13 @@ async function scrapeLiveLawCourt(
 						? href
 						: `https://www.livelaw.in${href}`;
 
+				let resolvedImage = "";
+				try {
+					resolvedImage = image ? new URL(image, fullLink).toString() : "";
+				} catch {
+					resolvedImage = image || "";
+				}
+
 				articles.push({
 
 					id:
@@ -101,7 +109,7 @@ async function scrapeLiveLawCourt(
 						fullLink,
 
 					image:
-						image || "",
+						resolvedImage,
 
 					court,
 
@@ -143,13 +151,26 @@ async function scrapeLiveLawCourt(
 
 			);
 
+		const enriched =
+			await Promise.all(
+				unique.slice(0, 20).map(async (item) => {
+					if (item.image) return item;
+					const resolved = await resolveArticleImage(item, { court });
+					return {
+						...item,
+						image: resolved.image || "",
+						imageStatus: resolved.status,
+					};
+				})
+			);
+
 		console.log(
 			"LIVELAW SCRAPED",
 			court,
 			unique.length
 		);
 
-		return unique.slice(0, 20);
+		return enriched;
 
 	}
 

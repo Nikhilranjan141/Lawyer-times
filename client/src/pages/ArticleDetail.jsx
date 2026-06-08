@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import axios from "axios";
-import { ArrowLeft, ArrowRight, CalendarDays, Clock3, Copy, ExternalLink, Share2, Shield } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock3, Copy, ExternalLink, FileText, Share2, Shield } from "lucide-react";
 import DOMPurify from "dompurify";
 import Navbar from "../components/Navbar";
-import { buildArticleScopeLabel, getArticleImage } from "../utils/articleMedia";
+import { buildArticleScopeLabel, getArticleImage, capitalizeTitle } from "../utils/articleMedia";
 import "../styles/article-pages.css";
 
 const API = "http://localhost:5000";
@@ -232,13 +232,13 @@ function ArticleDetail() {
           <nav className="article-breadcrumb" aria-label="Breadcrumb">
             <Link to="/">Home</Link>
             <Link to={backTarget}>{buildArticleScopeLabel({ categorySlug, category: safeArticle.category })}</Link>
-            <span>{safeArticle.title}</span>
+            <span>{capitalizeTitle(safeArticle.title)}</span>
           </nav>
 
           <div className="article-reader-header">
             <div className="article-reader-copy">
               <p className="article-reader-eyebrow">Published Article</p>
-              <h1>{safeArticle.title}</h1>
+              <h1>{capitalizeTitle(safeArticle.title)}</h1>
               <div className="article-reader-meta">
                 <span className="article-reader-badge">{safeArticle.category}</span>
                 <span><CalendarDays size={15} /> {formatDate(safeArticle.publishedAt || safeArticle.submissionDate)}</span>
@@ -258,7 +258,11 @@ function ArticleDetail() {
           </div>
 
           <div className="article-reader-hero">
-            <img src={articleImage} alt={safeArticle.title} />
+            {articleImage ? (
+              <img src={articleImage} alt={safeArticle.title} />
+            ) : (
+              <div className="article-image-placeholder"><FileText size={34} /><span>Court document</span></div>
+            )}
           </div>
 
           <section className="article-reader-grid">
@@ -296,12 +300,16 @@ function ArticleDetail() {
               <div className="reader-card">
                 <h3>Related Articles</h3>
                 <div className="related-article-grid">
-                  {related.length ? related.slice(0, 4).map((item) => (
+                        {related.length ? related.slice(0, 4).map((item) => (
                     <Link key={item.articleId} to={`/articles/${item.categorySlug}/${item.articleId}?id=${encodeURIComponent(item.articleId)}&docid=${encodeURIComponent(item.articleId)}`} state={{ fromCategory: categorySlug, article: item }} className="related-article-card">
-                      <img src={getArticleImage({ ...item, categorySlug })} alt={item.title} />
+                            {getArticleImage({ ...item, categorySlug }) ? (
+                              <img src={getArticleImage({ ...item, categorySlug })} alt={item.title} />
+                            ) : (
+                              <div className="article-image-placeholder"><FileText size={24} /><span>Court document</span></div>
+                            )}
                       <div>
                         <span>{item.category}</span>
-                        <strong>{item.title}</strong>
+                        <strong>{capitalizeTitle(item.title)}</strong>
                         <p>{item.shortDescription}</p>
                       </div>
                     </Link>

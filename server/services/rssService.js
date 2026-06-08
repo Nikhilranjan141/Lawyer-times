@@ -1,7 +1,9 @@
 const axios = require("axios");
 const crypto = require("crypto");
 const slugify = require("../utils/slugify");
-const { getFallbackImage } = require("../constants/legalContent");
+const { DEFAULT_LEGAL_IMAGE } = require("../constants/legalContent");
+const { isUsableImage, resolveArticleImage, resolvePublisherUrl, scrapePageImage } = require("./articleImageResolver");
+const cheerio = require("cheerio");
 
 const GOOGLE_NEWS_FEEDS = {
 
@@ -83,6 +85,21 @@ function tagValue(xml, tagNames) {
 	return "";
 }
 
+function rawTagValue(xml, tagNames) {
+	for (const tagName of tagNames) {
+		const match = xml.match(new RegExp(`<${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tagName}>`, "i"));
+		if (match) {
+			return String(match[1] || "")
+				.replace(/<!\[CDATA\[(.*?)\]\]>/gs, "$1")
+				.replace(/&amp;/g, "&")
+				.replace(/&quot;/g, '"')
+				.replace(/&#39;/g, "'");
+		}
+	}
+
+	return "";
+}
+
 function attrValue(xml, tagName, attrName) {
 	const match = xml.match(new RegExp(`<${tagName}[^>]*\\s${attrName}=["']([^"']+)["'][^>]*>`, "i"));
 	return match ? decodeEntities(match[1]) : "";
@@ -130,7 +147,7 @@ function extractPageContent(html = "") {
 }
 
 async function fetchLinkedPageContent(link, feedUrl = "") {
-	if (!link) return "";
+	if (!link) return null;
 
 	try {
 		const response = typeof fetch === "function"
@@ -149,13 +166,74 @@ async function fetchLinkedPageContent(link, feedUrl = "") {
 				responseType: "text",
 			});
 
-		if (typeof response.ok === "boolean" && !response.ok) return "";
-		if (response.status && (response.status < 200 || response.status >= 300)) return "";
+		if (typeof response.ok === "boolean" && !response.ok) return null;
+		if (response.status && (response.status < 200 || response.status >= 300)) return null;
 
 		const html = typeof response.text === "function" ? await response.text() : response.data;
-		return extractPageContent(html);
+		const content = extractPageContent(html);
+
+		// Extract image from meta tags or first meaningful image in article/main
+		try {
+			const $ = cheerio.load(html || "");
+			let image = null;
+
+			image = ($('meta[property="og:image"]').attr('content') || $('meta[name="og:image"]').attr('content') || $('meta[name="twitter:image"]').attr('content') || '').trim() || null;
+
+			if (!image) {
+				const articleImg = $('article img').first().attr('src');
+				image = (articleImg || $('main img').first().attr('src') || $('img').filter((i, el) => {
+					const src = $(el).attr('src') || '';
+					return /\.(jpe?g|png|webp|gif)$/i.test(src);
+				}).first().attr('src')) || null;
+			}
+
+			// helper to detect probable logos/placeholders
+			if (image) {
+				try {
+					const resolved = new URL(image, link).toString();
+					image = resolved;
+				} catch (e) {
+					// leave as-is
+				}
+			}
+
+			if (image && !isUsableImage(image)) {
+				// try to find a better candidate: larger images or jpg/png
+				const found = $('img').toArray().map((el) => ({
+					src: $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-lazy-src') || '',
+					w: parseInt($(el).attr('width') || $(el).attr('data-width') || 0, 10) || 0,
+					h: parseInt($(el).attr('height') || $(el).attr('data-height') || 0, 10) || 0,
+				})).filter((f) => f && f.src).sort((a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h));
+
+				for (const f of found) {
+					if (!f.src) continue;
+					let resolvedCandidate = f.src;
+					try {
+						resolvedCandidate = new URL(f.src, link).toString();
+					} catch {
+						resolvedCandidate = f.src;
+					}
+					if (!isUsableImage(resolvedCandidate)) continue;
+					if ((f.w && f.h && Math.max(f.w, f.h) > 80) || /\.(jpe?g|png|webp|gif)(?:\?|$)/i.test(f.src)) {
+						try {
+							image = new URL(f.src, link).toString();
+							break;
+						} catch (e) {
+							image = f.src;
+							break;
+						}
+					}
+				}
+			}
+
+			if (image && !isUsableImage(image)) image = null;
+
+			return { content, image };
+		} catch (err) {
+			return { content, image: null };
+		}
 	} catch (error) {
-		return "";
+		return null;
 	}
 }
 
@@ -165,7 +243,7 @@ async function fetchLinkedPageContent(link, feedUrl = "") {
  function normalizeRssItem(itemXml, feedUrl, context = {}) {
 	const title = tagValue(itemXml, ["title"]);
 	const summary = tagValue(itemXml, ["description", "summary", "content:encoded", "content"]);
-	const link = tagValue(itemXml, ["link"]) || attrValue(itemXml, "link", "href");
+	let link = tagValue(itemXml, ["link"]) || attrValue(itemXml, "link", "href");
 	const guid = tagValue(itemXml, ["guid", "id"]) || link || title;
 	let image = "";
 
@@ -308,15 +386,34 @@ if (!image) {
 
 	const descriptionHtml =
 		String(
-			tagValue(
+			rawTagValue(
 				itemXml,
 				[
 					"description",
 					"content:encoded"
-				],
-				""
+				]
 			)
 		);
+
+	// If Google News link is present, try to extract the original publisher link from description
+	try {
+		if (link && /news\.google\.com/i.test(link)) {
+			const anchorMatch = descriptionHtml.match(/<a[^>]+href=["']([^"']+)["'][^>]*>/i);
+			if (anchorMatch && anchorMatch[1]) {
+				const candidate = anchorMatch[1];
+				if (!/news\.google\.com/i.test(candidate) && /^https?:\/\//i.test(candidate)) {
+					// prefer publisher link
+					try {
+						link = new URL(candidate, feedUrl).toString();
+					} catch (e) {
+						link = candidate;
+					}
+				}
+			}
+		}
+	} catch (e) {
+		// ignore
+	}
 
 	const imgMatch =
 		descriptionHtml.match(
@@ -346,24 +443,7 @@ if (!image) {
 
 
 // FINAL FALLBACK
-if (
-	!image
-) {
-
-	image =
-		getFallbackImage(
-
-			context.courtName ||
-
-			context.categoryLabel ||
-
-			context.sectionKey ||
-
-			"Legal News"
-
-		);
-
-}
+if (image && !isUsableImage(image)) image = "";
 	const tags = [tagValue(itemXml, ["category"], context)].filter(Boolean);
 	const scopeKey = buildScopeKey(context);
 	const resolvedGuid = guid || link || title || `${feedUrl}-${Math.random().toString(16).slice(2)}`;
@@ -439,12 +519,10 @@ function resolveFeedUrls(context = {}) {
 
 		);
 
-	// MAIN GOOGLE SEARCH FEED
-	urls.add(
-
-		`https://news.google.com/rss/search?q=${searchQuery}`
-
-	);
+	// MAIN GOOGLE SEARCH FEED (unless explicitly skipped)
+	if (!context.skipGoogle) {
+		urls.add(`https://news.google.com/rss/search?q=${searchQuery}`);
+	}
 
 	const googleCandidates = [
 
@@ -482,52 +560,12 @@ function resolveFeedUrls(context = {}) {
 		);
 
 	const googleKeyAliases = {
-
-		supreme:
-			"supreme",
-
-		patna:
-			"patna",
-
-		delhi:
-			"delhi",
-
-		bombay:
-			"bombay",
-
-		kerala:
-			"kerala",
-
-		allahabad:
-			"allahabad",
-
-		madras:
-			"madras",
-
-		calcutta:
-			"calcutta",
-
-		karnataka:
-			"karnataka",
-
-		gujarat:
-			"gujarat",
-
-		punjabandharyana:
-			"punjab",
-
-		jammuandkashmirandladakh:
-			"jammu",
-
-		constitutional:
-			"constitutional",
-
-		judgments:
-			"judgments",
-
-		legalnews:
-			"legalNews"
-
+		supreme: "supreme",
+		punjabandharyana: "punjab",
+		jammuandkashmirandladakh: "jammu",
+		constitutional: "constitutional",
+		judgments: "judgments",
+		legalnews: "legalNews"
 	};
 
 	for (
@@ -633,14 +671,43 @@ function resolveFeedUrls(context = {}) {
 
 async function enrichItem(item) {
 	if (!item?.link) return item;
-	const linkedContent = await fetchLinkedPageContent(item.link, item.raw?.feedUrl || "");
-	if (!linkedContent) return item;
+	const publisherUrl = await resolvePublisherUrl(item.link);
+	const linked = await fetchLinkedPageContent(publisherUrl || item.link, item.raw?.feedUrl || "");
+
+	const linkedContent = linked?.content || linked?.text || "";
+	const linkedImage = linked?.image || await scrapePageImage(publisherUrl || item.link);
+
+	const isFallback = (img) => {
+		if (!img) return true;
+		try {
+			// local paths or our default images indicate fallbacks
+			if (String(img).startsWith("/")) return true;
+			if (String(img).includes("/images/")) return true;
+			if (String(img).includes(DEFAULT_LEGAL_IMAGE)) return true;
+		} catch (e) {
+			return true;
+		}
+		return false;
+	};
+
+	let chosenImage = null;
+	if (linkedImage && !isFallback(linkedImage)) chosenImage = linkedImage;
+	if (!chosenImage && item.image && !isFallback(item.image)) chosenImage = item.image;
+	if (!chosenImage) {
+		const resolved = await resolveArticleImage(
+			{ ...item, sourceUrl: publisherUrl || item.sourceUrl || item.link, image: item.image },
+			{ court: item.courtCategory || item.category || "" }
+		);
+		chosenImage = resolved.image || "";
+	}
 
 	return {
 		...item,
-		fullContent: linkedContent,
-		content: item.content || linkedContent,
-		summary: item.summary || linkedContent,
+		fullContent: linkedContent || item.fullContent,
+		content: item.content || linkedContent || item.content,
+		summary: item.summary || linkedContent || item.summary,
+		image: chosenImage || "",
+		imageStatus: chosenImage ? "resolved" : "court-document-placeholder",
 		readTime: `${Math.max(1, Math.ceil(normalizeRssText(`${item.title || ""} ${linkedContent}`).split(/\s+/).filter(Boolean).length / 220))} min read`,
 	};
 }

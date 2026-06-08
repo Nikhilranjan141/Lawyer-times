@@ -56,21 +56,113 @@ const CATEGORY_CONFIG = {
 	},
 };
 
+const LEGAL_IMAGE_POOL = [
+	"https://images.unsplash.com/photo-1589578527966-fdac0f44566c?auto=format&fit=crop&w=1200&q=80",
+	"https://images.unsplash.com/photo-1505664194779-8beaceb93744?auto=format&fit=crop&w=1200&q=80",
+	"https://images.unsplash.com/photo-1528747045269-390fe33c19f2?auto=format&fit=crop&w=1200&q=80",
+	"https://images.unsplash.com/photo-1453945619913-79ec89a82c51?auto=format&fit=crop&w=1200&q=80",
+	"https://images.unsplash.com/photo-1563206767-5b18f218e8de?auto=format&fit=crop&w=1200&q=80",
+	"https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=1200&q=80",
+	"https://images.unsplash.com/photo-1521791055366-0d553872125f?auto=format&fit=crop&w=1200&q=80",
+	"https://images.unsplash.com/photo-1526379095098-d400fd0bf935?auto=format&fit=crop&w=1200&q=80",
+];
+
+const TOPIC_IMAGE_RULES = [
+	{ terms: ["constitution", "article 14", "article 19", "article 21", "fundamental right"], image: LEGAL_IMAGE_POOL[0] },
+	{ terms: ["bail", "criminal", "fir", "arrest", "custody", "accused"], image: LEGAL_IMAGE_POOL[2] },
+	{ terms: ["property", "land", "revenue", "tenant", "lease"], image: LEGAL_IMAGE_POOL[3] },
+	{ terms: ["tax", "gst", "income tax", "customs", "excise"], image: LEGAL_IMAGE_POOL[4] },
+	{ terms: ["privacy", "digital", "data", "technology", "cyber"], image: LEGAL_IMAGE_POOL[7] },
+	{ terms: ["election", "parliament", "assembly", "government"], image: LEGAL_IMAGE_POOL[6] },
+	{ terms: ["contract", "company", "corporate", "insolvency", "arbitration"], image: LEGAL_IMAGE_POOL[5] },
+	{ terms: ["family", "marriage", "divorce", "maintenance", "custody"], image: LEGAL_IMAGE_POOL[1] },
+];
+
 const IMAGE_MAP = {
-	"Allahabad High Court": "/images/allahabad-hc.png",
-	"Delhi High Court": "/images/delhi-hc.png",
-	"Bombay High Court": "/images/bombay-hc.png",
-	"Patna High Court": "/images/patna-hc.png",
-	"Madras High Court": "/images/madras-hc.png",
-	"Karnataka High Court": "/images/karnataka-hc.png",
-	"Supreme Court": "/images/sc.png",
-	"Constitutional Law": "/images/constitutional-law.png",
-	"Legal News": "/images/legal-news.png",
-	Judgments: "/images/default-legal.png",
-	Articles: "/images/default-legal.png",
+	"Allahabad High Court": LEGAL_IMAGE_POOL[0],
+	"Andhra Pradesh High Court": LEGAL_IMAGE_POOL[1],
+	"Bombay High Court": LEGAL_IMAGE_POOL[2],
+	"Calcutta High Court": LEGAL_IMAGE_POOL[3],
+	"Chhattisgarh High Court": LEGAL_IMAGE_POOL[4],
+	"Delhi High Court": LEGAL_IMAGE_POOL[5],
+	"Gauhati High Court": LEGAL_IMAGE_POOL[6],
+	"Gujarat High Court": LEGAL_IMAGE_POOL[7],
+	"Himachal Pradesh High Court": LEGAL_IMAGE_POOL[0],
+	"Jammu & Kashmir and Ladakh High Court": LEGAL_IMAGE_POOL[1],
+	"Jharkhand High Court": LEGAL_IMAGE_POOL[2],
+	"Karnataka High Court": LEGAL_IMAGE_POOL[3],
+	"Kerala High Court": LEGAL_IMAGE_POOL[4],
+	"Madhya Pradesh High Court": LEGAL_IMAGE_POOL[5],
+	"Madras High Court": LEGAL_IMAGE_POOL[6],
+	"Manipur High Court": LEGAL_IMAGE_POOL[7],
+	"Meghalaya High Court": LEGAL_IMAGE_POOL[0],
+	"Orissa High Court": LEGAL_IMAGE_POOL[1],
+	"Patna High Court": LEGAL_IMAGE_POOL[2],
+	"Punjab and Haryana High Court": LEGAL_IMAGE_POOL[3],
+	"Rajasthan High Court": LEGAL_IMAGE_POOL[4],
+	"Sikkim High Court": LEGAL_IMAGE_POOL[5],
+	"Telangana High Court": LEGAL_IMAGE_POOL[6],
+	"Tripura High Court": LEGAL_IMAGE_POOL[7],
+	"Uttarakhand High Court": LEGAL_IMAGE_POOL[0],
+	"Supreme Court": LEGAL_IMAGE_POOL[0],
+	"Constitutional Law": LEGAL_IMAGE_POOL[0],
+	"Legal News": LEGAL_IMAGE_POOL[6],
+	Judgments: LEGAL_IMAGE_POOL[1],
+	Articles: LEGAL_IMAGE_POOL[5],
 };
 
 const DEFAULT_LEGAL_IMAGE = "/images/default-legal.png";
+
+const IMAGE_LOOKUP_ALIASES = {
+	"supreme-court": "Supreme Court",
+	supreme: "Supreme Court",
+	supremecourt: "Supreme Court",
+	"legal-news": "Legal News",
+	legalnews: "Legal News",
+	"constitutional-law": "Constitutional Law",
+	constitutional: "Constitutional Law",
+	judgments: "Judgments",
+	judgment: "Judgments",
+	articles: "Articles",
+	article: "Articles",
+	allahabad: "Allahabad High Court",
+	"allahabad-high-court": "Allahabad High Court",
+	delhi: "Delhi High Court",
+	"delhi-high-court": "Delhi High Court",
+	bombay: "Bombay High Court",
+	"bombay-high-court": "Bombay High Court",
+	patna: "Patna High Court",
+	"patna-high-court": "Patna High Court",
+	madras: "Madras High Court",
+	"madras-high-court": "Madras High Court",
+	karnataka: "Karnataka High Court",
+	"karnataka-high-court": "Karnataka High Court",
+};
+
+function resolveImageKey(key = "") {
+	const normalized = String(key || "").trim().toLowerCase();
+	if (!normalized) return "";
+
+	if (IMAGE_MAP[key]) return key;
+	if (IMAGE_LOOKUP_ALIASES[normalized]) return IMAGE_LOOKUP_ALIASES[normalized];
+
+	const slug = slugify(normalized);
+	if (IMAGE_LOOKUP_ALIASES[slug]) return IMAGE_LOOKUP_ALIASES[slug];
+
+	if (normalized.includes("supreme")) return "Supreme Court";
+	if (normalized.includes("constitutional")) return "Constitutional Law";
+	if (normalized.includes("legal news") || normalized.includes("legal-news")) return "Legal News";
+	if (normalized.includes("judgment")) return "Judgments";
+
+	for (const courtName of Object.keys(IMAGE_MAP)) {
+		const courtSlug = slugify(courtName);
+		if (normalized.includes(courtName.toLowerCase()) || normalized.includes(courtSlug)) {
+			return courtName;
+		}
+	}
+
+	return "";
+}
 
 const COURT_DOCTYPE_MAP = {
 	"Supreme Court": "supremecourt",
@@ -148,26 +240,43 @@ function getCategoryConfig(category = "") {
 }
 
 function getFallbackImage(key = "") {
-	return IMAGE_MAP[key] || DEFAULT_LEGAL_IMAGE;
+	const resolvedKey = resolveImageKey(key);
+	if (IMAGE_MAP[resolvedKey]) return IMAGE_MAP[resolvedKey];
+	return pickImageFromText(key || "legal update");
 }
 
 function getArticleImage(article = {}, context = {}) {
-	if (article.featuredImage) return article.featuredImage;
+	if (article.featuredImage && !isFallbackImage(article.featuredImage)) return article.featuredImage;
+	if (article.image && !isFallbackImage(article.image)) return article.image;
+	return "";
+}
 
-	const text = `${article.title || ""} ${article.category || ""} ${article.categorySlug || ""} ${(article.tags || []).join(" ")} ${context.courtName || ""}`.toLowerCase();
+function hashText(value = "") {
+	return String(value || "").split("").reduce((hash, char) => ((hash << 5) - hash + char.charCodeAt(0)) | 0, 0);
+}
 
-	if (text.includes("allahabad")) return IMAGE_MAP["Allahabad High Court"];
-	if (text.includes("delhi")) return IMAGE_MAP["Delhi High Court"];
-	if (text.includes("bombay")) return IMAGE_MAP["Bombay High Court"];
-	if (text.includes("patna")) return IMAGE_MAP["Patna High Court"];
-	if (text.includes("madras")) return IMAGE_MAP["Madras High Court"];
-	if (text.includes("karnataka")) return IMAGE_MAP["Karnataka High Court"];
-	if (text.includes("supreme")) return IMAGE_MAP["Supreme Court"];
-	if (text.includes("constitutional")) return IMAGE_MAP["Constitutional Law"];
-	if (text.includes("legal news")) return IMAGE_MAP["Legal News"];
-	if (text.includes("judgment") || text.includes("judgments")) return IMAGE_MAP.Judgments;
+function pickImageFromText(value = "") {
+	const hash = Math.abs(hashText(value || "legal update"));
+	return LEGAL_IMAGE_POOL[hash % LEGAL_IMAGE_POOL.length];
+}
 
-	return getFallbackImage(context.courtName || article.category || article.categorySlug || "");
+function getTopicImage(value = "") {
+	const text = String(value || "").toLowerCase();
+	const rule = TOPIC_IMAGE_RULES.find((entry) => entry.terms.some((term) => text.includes(term)));
+	return rule?.image || "";
+}
+
+function isFallbackImage(image = "") {
+	const value = String(image || "").trim().toLowerCase();
+	if (!value) return true;
+	if (value.startsWith("data:")) return true;
+	if (value.includes("/images/")) return true;
+	if (value.includes("default-legal")) return true;
+	if (value.includes("images.unsplash.com")) return true;
+	if (value.includes("logo") || value.includes("favicon")) return true;
+	if (value.includes("news.google") || value.includes("encrypted-tbn")) return true;
+	if (value.includes("gstatic") || value.includes("googleusercontent")) return true;
+	return false;
 }
 
 function buildLegalQuery({ category, court, search } = {}) {
@@ -193,6 +302,7 @@ module.exports = {
 	HIGH_COURT_NAMES,
 	HIGH_COURT_QUERY_MAP,
 	IMAGE_MAP,
+	isFallbackImage,
 	buildLegalQuery,
 	getArticleImage,
 	courtFromSlug,

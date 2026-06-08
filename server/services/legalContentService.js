@@ -7,11 +7,11 @@ const {
 	buildLegalQuery,
 	courtFromSlug,
 	getCategoryConfig,
-	getFallbackImage,
 	getArticleImage,
 } = require("../constants/legalContent");
 const { fetchIndianKanoonDocument, searchIndianKanoon } = require("./indianKanoonService");
 const { fetchRssContent } = require("./rssService");
+const { isUsableImage, resolveArticleImage } = require("./articleImageResolver");
 
 const REFRESH_INTERVAL_MS = Number(process.env.LEGAL_CONTENT_REFRESH_MINUTES || 20) * 60 * 1000;
 
@@ -78,6 +78,7 @@ function toClientContent(item) {
 	const source = plain.source || "admin";
 	const internalLink = source === "indian-kanoon" ? `/article/${encodeURIComponent(slug)}` : (plain.link || "");
 	const content = extractArticleContent(plain);
+	const image = isUsableImage(plain.image || plain.featuredImage) ? (plain.image || plain.featuredImage) : "";
 
 	return {
 		id: plain.uniqueKey || plain.sourceKey || docid,
@@ -91,7 +92,8 @@ function toClientContent(item) {
 		source,
 		author: plain.author?.name || plain.author || "Lawyers Times",
 		link: internalLink,
-		image: plain.image || plain.featuredImage || getFallbackImage(courtCategory),
+		image,
+		imageStatus: image ? (plain.imageStatus || "source-image") : "court-document-placeholder",
 		tags: plain.tags || [],
 		readTime: plain.readTime || "1 min read",
 		category: plain.category || courtCategory,
@@ -269,6 +271,42 @@ async function upsertLegalContent(items = []) {
 	return (result.upsertedCount || 0) + (result.modifiedCount || 0);
 }
 
+function buildExternalItemKey(item = {}) {
+	const title = String(item.title || "").trim().toLowerCase();
+	const court = String(item.court || item.courtCategory || item.category || "").trim().toLowerCase();
+	const date = new Date(item.publishDate || item.publishdate || item.date || item.updatedAt || 0).toISOString().slice(0, 10);
+	const sourceUrl = String(item.sourceUrl || item.link || "").trim().toLowerCase();
+	const sourceId = String(item.sourceId || item.docid || item.id || "").trim().toLowerCase();
+	const section = String(item.sectionKey || item.categorySlug || item.category || "").trim().toLowerCase();
+	return [sourceUrl || sourceId || title, court, date, section].join("|");
+}
+
+function scoreExternalItem(item = {}) {
+	return [
+		String(item.fullContent || item.content || "").length,
+		item.image ? 5000 : 0,
+		item.classificationScore || 0,
+		item.source === "indian-kanoon" ? 250 : 0,
+	].reduce((sum, value) => sum + value, 0);
+}
+
+function dedupeExternalItems(items = []) {
+	const deduped = new Map();
+
+	for (const item of items) {
+		if (!item) continue;
+		const key = buildExternalItemKey(item);
+		if (!key) continue;
+
+		const existing = deduped.get(key);
+		if (!existing || scoreExternalItem(item) > scoreExternalItem(existing)) {
+			deduped.set(key, item);
+		}
+	}
+
+	return Array.from(deduped.values());
+}
+
 async function refreshLegalContent(params = {}) {
 	const context = buildContext(params);
 
@@ -290,7 +328,22 @@ async function refreshLegalContent(params = {}) {
 		...(rssResult.status === "fulfilled" ? rssResult.value : []),
 	];
 
-	const storedCount = await upsertLegalContent(externalItems);
+	const enrichedItems = [];
+	for (const item of dedupeExternalItems(externalItems)) {
+		if (isUsableImage(item.image)) {
+			enrichedItems.push({ ...item, imageStatus: item.imageStatus || "source-image" });
+			continue;
+		}
+
+		const resolved = await resolveArticleImage(item, { court: context.courtName || context.categoryLabel });
+		enrichedItems.push({
+			...item,
+			image: resolved.image || "",
+			imageStatus: resolved.status,
+		});
+	}
+
+	const storedCount = await upsertLegalContent(enrichedItems);
 
 	return {
 		context,
@@ -510,3 +563,11 @@ module.exports = {
 	refreshDefaultLegalContent,
 	refreshLegalContent,
 };
+
+
+
+
+
+
+
+

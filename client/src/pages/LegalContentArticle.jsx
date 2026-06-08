@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CalendarDays, Clock3, Copy, ExternalLink, Share2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock3, Copy, ExternalLink, FileText, Share2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import Navbar from "../components/Navbar";
 import { getLegalContentItem } from "../services/api";
-import { getArticleImage } from "../utils/articleMedia";
+import { getArticleImage, capitalizeTitle } from "../utils/articleMedia";
 import "../styles/article-pages.css";
 
 const BACK_LINKS = {
@@ -237,7 +237,7 @@ function LegalContentArticle() {
           <div className="article-reader-header">
             <div className="article-reader-copy">
               <p className="article-reader-eyebrow">Legal Article</p>
-              <h1>{item.title}</h1>
+              <h1>{capitalizeTitle(item.title)}</h1>
               <div className="article-reader-meta">
                 <span className="article-reader-badge">{item.courtCategory || item.category}</span>
                 <span><CalendarDays size={15} /> {formatDate(item.publishDate)}</span>
@@ -257,7 +257,11 @@ function LegalContentArticle() {
           </div>
 
           <div className="article-reader-hero">
-            <img src={articleImage} alt={item.title} />
+            {articleImage ? (
+              <img src={articleImage} alt={item.title} />
+            ) : (
+              <div className="article-image-placeholder"><FileText size={34} /><span>Court document</span></div>
+            )}
           </div>
 
           <section className="article-reader-grid">
@@ -309,7 +313,11 @@ function LegalContentArticle() {
                 <div className="related-article-grid">
                   {(payload?.related || []).length ? payload.related.map((related) => (
                     <Link key={related.uniqueKey || related.id} to={related.link} state={{ fromCategory: payload.meta?.category }} className="related-article-card">
-                      <img src={getArticleImage(related)} alt={related.title} />
+                      {getArticleImage(related) ? (
+                        <img src={getArticleImage(related)} alt={related.title} />
+                      ) : (
+                        <div className="article-image-placeholder"><FileText size={22} /><span>Court document</span></div>
+                      )}
                       <div>
                         <span>{related.courtCategory || related.category}</span>
                         <strong>{related.title}</strong>
@@ -336,3 +344,11 @@ function LegalContentArticle() {
 }
 
 export default LegalContentArticle;
+
+
+
+
+
+
+
+

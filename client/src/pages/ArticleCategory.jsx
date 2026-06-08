@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Clock3, CalendarDays, ArrowRight } from "lucide-react";
+import { Clock3, CalendarDays, ArrowRight, FileText } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import axios from "axios";
 import Navbar from "../components/Navbar";
-import { buildArticleScopeLabel, getArticleImage } from "../utils/articleMedia";
+import { buildArticleScopeLabel, getArticleImage, capitalizeTitle } from "../utils/articleMedia";
 import "../styles/article-pages.css";
 
 const API = "http://localhost:5000";
@@ -105,14 +105,18 @@ function ArticleCategory() {
                 transition={{ delay: index * 0.04, duration: 0.35 }}
                 whileHover={{ y: -6 }}
               >
-                <img src={getArticleImage({ ...article, categorySlug })} alt={article.title} />
+                {getArticleImage({ ...article, categorySlug }) ? (
+                  <img src={getArticleImage({ ...article, categorySlug })} alt={article.title} />
+                ) : (
+                  <div className="article-image-placeholder"><FileText size={30} /><span>Court document</span></div>
+                )}
                 <div className="category-article-content">
                   <div className="article-meta-row">
                     <span className="article-pill">{article.category}</span>
                     <span className="article-pill muted"><CalendarDays size={14} /> {new Date(article.publishedAt || article.submissionDate).toLocaleDateString()}</span>
                     <span className="article-pill muted"><Clock3 size={14} /> {article.readTime}</span>
                   </div>
-                  <h2>{article.title}</h2>
+                  <h2>{capitalizeTitle(article.title)}</h2>
                   <p>{article.shortDescription}</p>
                   <span className="article-scope-label">{buildArticleScopeLabel({ ...article, categorySlug })}</span>
                   <div className="article-tag-row">

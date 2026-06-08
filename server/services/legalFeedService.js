@@ -13,7 +13,6 @@ const {
 	HIGH_COURT_QUERY_MAP,
 	COURT_DOCTYPE_MAP,
 	buildLegalQuery,
-	getArticleImage,
 	getFallbackImage,
 	courtFromSlug,
 } = require("../constants/legalContent");
@@ -28,6 +27,11 @@ const {
 	pickImageForItem,
 	stripTags,
 } = require("./legalClassifier");
+const {
+	fetchIndianKanoonDocument,
+	fetchIndianKanoonSearchHtml,
+} = require("./indianKanoonService");
+const { isUsableImage, resolveArticleImage } = require("./articleImageResolver");
 
 const INDIA_KANOON_BASE_URL = "https://api.indiankanoon.org";
 const REFRESH_MINUTES = 10;
@@ -128,6 +132,18 @@ function parseDate(value) {
 	return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
+function looksLikeLogo(src = "") {
+	if (!src) return true;
+	const s = String(src).toLowerCase();
+	if (s.startsWith('data:')) return true;
+	if (s.endsWith('.svg')) return true;
+	if (s.includes('logo') || s.includes('site-logo') || s.includes('favicon')) return true;
+	if (s.includes('indiankanoon') || s.includes('kanoon')) return true;
+	if (s.includes('/images/')) return true;
+	if (s.includes('gstatic') || s.includes('googleusercontent') || s.includes('news.google') || s.includes('encrypted-tbn') || s.includes('s0-w')) return true;
+	return false;
+}
+
 function detectCourt(item = {}) {
 	return classifyLegalItem(item).court || "General";
 }
@@ -219,6 +235,12 @@ async function fetchSearchResults(query, options = {}) {
 		logIkSuccess("IK SEARCH SUCCESS", response, data.length);
 		return data;
 	} catch (error) {
+		if (error?.response?.status === 403) {
+			const fallback = await fetchIndianKanoonSearchHtml(query, options.context || {});
+			console.log("IK PUBLIC SEARCH FALLBACK USED", { query, count: fallback.length });
+			return fallback;
+		}
+
 		logIkFailure("IK SEARCH FAIL", error);
 		const detail = error?.response?.data ? JSON.stringify(error.response.data) : error?.message || "Unknown Indian Kanoon error";
 		throw new Error(`Indian Kanoon search failed: ${detail}`);
@@ -244,11 +266,17 @@ async function fetchDocumentContent(docid, query) {
 				return { payload, content, court: payload?.docsource || payload?.court || "", sourceUrl: payload?.url || payload?.sourceUrl || "" };
 			}
 		} catch (error) {
+			if (error?.response?.status === 403) {
+				const fallback = await fetchIndianKanoonDocument(docid, { query });
+				if (fallback?.text) {
+					return fallback;
+				}
+			}
 			logIkFailure("IK DOC FAIL", error);
 		}
 	}
 
-	return null;
+	return fetchIndianKanoonDocument(docid, { query });
 }
 
 function buildNormalizedRecord(item = {}, section = {}, detail = null, source = "rss") {
@@ -287,10 +315,11 @@ function buildNormalizedRecord(item = {}, section = {}, detail = null, source = 
 	});
 	const publishDate = parseDate(item.publishdate || item.publishDate || item.date || detail?.payload?.publishdate || detail?.payload?.publishDate);
 	const fullContent = contentText || headline || title;
-	const image =
+	const imageCandidate =
+		(detail && detail.image) ||
 		item.image ||
-		pickImageForItem({ ...item, title, court, category: classification.category, sectionKey: classification.sectionKey, sourceUrl }, classification) ||
-		getArticleImage({ title, category: classification.category, categorySlug: classification.sectionKey, tags: item.tags || [] }, { courtName: classification.court });
+		pickImageForItem({ ...item, title, court, category: classification.category, sectionKey: classification.sectionKey, sourceUrl }, classification);
+	const image = isUsableImage(imageCandidate) ? imageCandidate : "";
 
 	return {
 		id: docid,
@@ -307,6 +336,7 @@ function buildNormalizedRecord(item = {}, section = {}, detail = null, source = 
 		content: makeTeaser(item.content || item.summary || fullContent || headline || title, 220),
 		fullContent,
 		image,
+		imageStatus: image ? "source-image" : "court-document-placeholder",
 		category: classification.category === "highcourt" ? "highcourt" : detectCategory(court, classification.sectionKey),
 		sectionKey: classification.sectionKey,
 		sectionLabel: section.label,
@@ -445,6 +475,14 @@ async function saveSectionItems(items = []) {
 				existingSectionKey &&
 				existingSectionKey !== incomingSectionKey
 			) {
+				// Even if we skip updating the full record due to classification score,
+				// update the image if we have a non-logo image and the stored one is a logo/fallback.
+				if (isUsableImage(item.image)) {
+					const stored = await LegalContent.findOne({ docid: item.docid }).select({ image: 1 });
+					if (!isUsableImage(stored?.image)) {
+						await LegalContent.findOneAndUpdate({ docid: item.docid }, { $set: { image: item.image } }, { returnDocument: "after" });
+					}
+				}
 				continue;
 			}
 		}
@@ -463,7 +501,7 @@ async function saveSectionItems(items = []) {
 					sourceFetchedAt: new Date(),
 				},
 			},
-			{ upsert: true, new: true, setDefaultsOnInsert: true }
+			{ upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
 		);
 		saved.push(record);
 	}
@@ -578,6 +616,13 @@ function toClientItem(record, config = {}) {
 	
 
 
+	let chosenImage = isUsableImage(data.image) ? data.image : "";
+	if (!chosenImage) {
+		if (isUsableImage(data.raw?.image)) {
+			chosenImage = data.raw.image;
+		}
+	}
+
 	return {
 		id: data.docid,
 		docid: data.docid,
@@ -590,7 +635,8 @@ function toClientItem(record, config = {}) {
 		publishdate: data.publishDate || data.publishdate || data.date || data.updatedAt,
 		summary: makeTeaser(data.summary || data.fullContent || data.content || data.headline || data.title || "", 220),
 		content: makeTeaser(data.content || data.summary || data.fullContent || data.headline || data.title || "", 220),
-		image: data.image || getArticleImage({ title: data.title, category: data.category, categorySlug: data.sectionKey, tags: data.tags || [] }, { courtName: court }) || getFallbackImage(court || config.court || data.category || data.sectionKey),
+		image: chosenImage,
+		imageStatus: chosenImage ? (data.imageStatus || "source-image") : "court-document-placeholder",
 		category: data.category || detectCategory(court, data.sectionKey || config.sectionKey),
 		updatedAt: data.updatedAt,
 		readTime: data.readTime || buildReadTime(`${data.title || ""} ${data.summary || ""} ${data.content || ""}`),
@@ -621,11 +667,25 @@ async function refreshSection(section = "legal-news", court = "") {
 
 	if (apiKey) {
 		try {
-			const docs = (await fetchSearchResults(config.query, { doctype: config.doctype })).slice(0, 12);
+			const docs = (await fetchSearchResults(config.query, { doctype: config.doctype, context: config })).slice(0, 12);
 			const normalized = [];
 			for (const doc of docs) {
 				const detail = await fetchDocumentContent(doc.docid || doc.tid || doc.id, config.query);
 				normalized.push(buildNormalizedRecord(doc, config, detail, "indian-kanoon"));
+			}
+
+			for (let i = 0; i < normalized.length; i++) {
+				const item = normalized[i];
+				if (!item) continue;
+				if (!isUsableImage(item.image)) {
+					try {
+						const resolved = await resolveArticleImage(item, { court: config.court || item.court });
+						item.image = resolved.image || "";
+						item.imageStatus = resolved.status;
+					} catch (e) {
+						// ignore
+					}
+				}
 			}
 			normalizedSourceItems = dedupeByDocId(normalized);
 			sourceItems = normalizedSourceItems.filter((item) => classifyForTarget(item, config)).map((item) => applyTargetSection(item, config));
@@ -731,7 +791,15 @@ async function listSectionFeed(section = "legal-news", court = "", params = {}) 
 
 	let refreshResult = null;
 	try {
-		refreshResult = await refreshSection(section, court);
+		if (params.refresh) {
+			// explicit refresh requested — run synchronously
+			refreshResult = await refreshSection(section, court);
+		} else {
+			// start background refresh and don't block the request
+			refreshSection(section, court).catch((err) => {
+				console.log("SECTION REFRESH ASYNC FAIL", { sectionKey: config.sectionKey, message: err?.message || err });
+			});
+		}
 	} catch (error) {
 		console.log("SECTION REFRESH FAIL", { sectionKey: config.sectionKey, message: error.message });
 	}
@@ -824,7 +892,7 @@ async function getLegalArticleByDocId(docid, params = {}) {
 			record = await LegalContent.findOneAndUpdate(
 				{ docid: normalized.docid },
 				{ $set: normalized, $setOnInsert: { sourceKey: `ik:direct:${normalized.docid}`, source: "indian-kanoon" } },
-				{ upsert: true, new: true, setDefaultsOnInsert: true }
+				{ upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
 			);
 		}
 	}
@@ -832,6 +900,8 @@ async function getLegalArticleByDocId(docid, params = {}) {
 	if (!record) {
 		throw new Error("Content item not found");
 	}
+
+	const itemImage = isUsableImage(record.image) ? record.image : "";
 
 	const item = {
 		id: record.docid,
@@ -846,7 +916,8 @@ async function getLegalArticleByDocId(docid, params = {}) {
 		summary: record.summary || record.headline || "",
 		content: record.content || record.fullContent || record.summary || "",
 		fullContent: record.fullContent || record.content || record.summary || "",
-		image: record.image || getArticleImage({ title: record.title, category: record.category, categorySlug: record.sectionKey, tags: record.tags || [] }, { courtName: record.court }),
+		image: itemImage,
+		imageStatus: itemImage ? (record.imageStatus || "source-image") : "court-document-placeholder",
 		category: record.category || detectCategory(record.court, record.sectionKey),
 		updatedAt: record.updatedAt,
 		sectionKey: record.sectionKey || "legal-news",
@@ -880,30 +951,6 @@ module.exports = {
 	testIndianKanoonSearch,
 	startLegalFeedScheduler,
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -5,6 +5,7 @@ import axios from "axios";
 import { CheckCircle2, Globe, Link2, Mail, Menu, Moon, Search, Sun, X } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import MegaMenuNavItem from "./MegaMenuNavItem";
+import { capitalizeTitle } from "../utils/articleMedia";
 import { HIGH_COURTS } from "../data/highCourts";
 import { SUPREME_COURT } from "../data/supremeCourt";
 
@@ -352,7 +353,7 @@ function Navbar() {
                 {filteredResults.length ? filteredResults.map((item) => (
                   <NavLink key={`${item.type}-${item.title}-${item.href}`} to={item.href} className="search-result-card" onClick={closeSearch}>
                     <span>{item.type}</span>
-                    <strong>{item.title}</strong>
+                    <strong>{capitalizeTitle(item.title)}</strong>
                     <p>{item.description}</p>
                   </NavLink>
                 )) : (

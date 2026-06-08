@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/Navbar";
+import { capitalizeTitle } from "../utils/articleMedia";
 import "../styles/home.css";
 
 const heroStats = [
@@ -256,7 +257,7 @@ function Home() {
                   <span className="trend-badge">{item.category}</span>
                 </div>
                 <div className="trend-content">
-                  <h3>{item.title}</h3>
+                  <h3>{capitalizeTitle(item.title)}</h3>
                   <div className="meta-row">
                     <span>{item.date}</span>
                     <span>{item.time}</span>
@@ -318,7 +319,7 @@ function Home() {
                   <span>{item.court}</span>
                   <span>{item.date}</span>
                 </div>
-                <h3>{item.title}</h3>
+                <h3>{capitalizeTitle(item.title)}</h3>
                 <p>{item.summary}</p>
                 <div className="tag-row">
                   {item.tags.map((tag) => (
@@ -355,7 +356,7 @@ function Home() {
                 </div>
                 <div className="insight-content">
                   <span className="insight-category">{item.category}</span>
-                  <h3>{item.title}</h3>
+                  <h3>{capitalizeTitle(item.title)}</h3>
                   <div className="meta-row meta-row-compact">
                     <span>{item.author}</span>
                     <span>{item.time}</span>

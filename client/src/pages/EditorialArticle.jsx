@@ -4,6 +4,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { CalendarDays, CheckCircle2, Clock3, FolderOpen, Tags, UserRound, XCircle } from "lucide-react";
 import Navbar from "../components/Navbar";
+import { capitalizeTitle } from "../utils/articleMedia";
 import "../styles/article-pages.css";
 
 const API = "http://localhost:5000";
@@ -96,7 +97,7 @@ function EditorialArticle() {
           <div className="preview-header">
             <div>
               <p className="eyebrow">Article Preview</p>
-              <h1>{article.title}</h1>
+              <h1>{capitalizeTitle(article.title)}</h1>
               <p>{article.author?.name} | {article.category} | {article.readTime}</p>
             </div>
             <Link to="/admin/editorial" className="editorial-secondary-button">Back to Dashboard</Link>

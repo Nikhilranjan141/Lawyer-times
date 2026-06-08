@@ -64,7 +64,7 @@ async function createOrUpdateDraft(req, res) {
 					status: "draft",
 					updatedAt: Date.now(),
 				},
-				{ new: true }
+				{ returnDocument: "after" }
 			);
 		}
 
@@ -102,7 +102,7 @@ async function submitForApproval(req, res) {
 					publishedAt: null,
 					rejectionReason: "",
 				},
-				{ new: true }
+				{ returnDocument: "after" }
 			);
 		}
 

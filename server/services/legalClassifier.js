@@ -140,7 +140,10 @@ function getTextHaystack(item = {}) {
 		item.sourceUrl,
 		item.link,
 		item.category,
+		item.sectionKey,
 		item.court,
+		item.raw?.docsource,
+		item.raw?.court,
 		Array.isArray(item.tags) ? item.tags.join(" ") : "",
 	].join(" "));
 }
@@ -246,7 +249,7 @@ function pickImageForItem(item = {}, classification = {}) {
 	if (classification.court) {
 		return getFallbackImage(classification.court);
 	}
-	return getFallbackImage(classification.category || item.category || item.sectionKey || "Legal News");
+	return getFallbackImage(classification.sectionKey || classification.category || item.category || item.sectionKey || "Legal News");
 }
 
 module.exports = {
@@ -260,3 +263,8 @@ module.exports = {
 	pickImageForItem,
 	stripTags,
 };
+
+
+
+
+

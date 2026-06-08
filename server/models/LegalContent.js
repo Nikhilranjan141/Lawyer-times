@@ -102,6 +102,14 @@ const legalContentSchema = new mongoose.Schema(
 			type: String,
 			default: "",
 		},
+		imageStatus: {
+			type: String,
+			default: "",
+		},
+		imageSource: {
+			type: String,
+			default: "",
+		},
 		aliasesMatched: [
 			{
 				type: String,
